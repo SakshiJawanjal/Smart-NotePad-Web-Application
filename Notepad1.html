@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fixed Multimedia Notepad</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            height: 100vh;
+            background: #f0f2f5;
+        }
+        .sidebar {
+            width: 300px;
+            background: #ffffff;
+            border-right: 1px solid #ccc;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .toolbar {
+            background: #ffffff;
+            padding: 10px 20px;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        button {
+            padding: 8px 12px;
+            cursor: pointer;
+            border: 1px solid #bbb;
+            border-radius: 4px;
+            background: #fff;
+        }
+        button:hover { background: #eee; }
+        .danger { background: #ff4d4d; color: white; border: none; }
+        .primary { background: #007bff; color: white; border: none; }
+        #editor-container {
+            flex: 1;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        /* Using a textarea avoids browser text selection bugs */
+        #main-textarea {
+            width: 100%;
+            height: 100%;
+            padding: 15px;
+            box-sizing: border-box;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            resize: none;
+            outline: none;
+        }
+        video {
+            width: 100%;
+            background: #000;
+            border-radius: 4px;
+            display: none;
+            margin-bottom: 10px;
+        }
+        #audio-playback {
+            width: 100%;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+        <div class="card">
+            <h3>📷 Camera</h3>
+            <video id="webcam-video" autoplay playsinline></video>
+            <button id="cam-toggle-btn" onclick="actionStartCamera()">Turn On Camera</button>
+            <button id="snap-btn" onclick="actionTakeSnapshot()" class="primary" style="display:none; margin-top:5px;">Capture Photo</button>
+            <div id="photo-status" style="margin-top:5px; font-size:12px; color:green;"></div>
+        </div>
+
+        <div class="card">
+            <h3>🎙️ Audio Recorder</h3>
+            <button id="record-btn" onclick="actionToggleAudio()">Start Recording</button>
+            <audio id="audio-playback" controls></audio>
+        </div>
+    </div>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="workspace">
+        <div class="toolbar">
+            <button class="danger" onclick="actionDeleteAll()">Delete All</button>
+            <button class="primary" onclick="actionSaveFile()">Save File</button>
+            
+            <span style="margin-left:20px;">Text Color:</span>
+            <input type="color" id="colorPicker" oninput="actionChangeColor(this.value)">
+
+            <span>Font Size:</span>
+            <select id="sizePicker" onchange="actionChangeSize(this.value)">
+                <option value="16px">Normal</option>
+                <option value="12px">Small</option>
+                <option value="24px">Large</option>
+                <option value="32px">Heading</option>
+            </select>
+        </div>
+
+        <div id="editor-container">
+            <textarea id="main-textarea" placeholder="Start typing your notes here..."></textarea>
+        </div>
+    </div>
+
+    <script>
+        const textarea = document.getElementById('main-textarea');
+        const video = document.getElementById('webcam-video');
+        const camToggleBtn = document.getElementById('cam-toggle-btn');
+        const snapBtn = document.getElementById('snap-btn');
+        const photoStatus = document.getElementById('photo-status');
+        const recordBtn = document.getElementById('record-btn');
+        const audioPlayback = document.getElementById('audio-playback');
+
+        let videoStream = null;
+        let audioRecorder = null;
+        let audioChunks = [];
+        let isAudioRecording = false;
+
+        // Load saved text automatically
+        window.onload = () => {
+            const backup = localStorage.getItem('notepad_backup_data');
+            if (backup) textarea.value = backup;
+        };
+
+        textarea.oninput = () => {
+            localStorage.setItem('notepad_backup_data', textarea.value);
+        };
+
+        /* FONT & COLOR FEATURES (Guaranteed to work without text highlighting) */
+        function actionChangeColor(colorValue) {
+            textarea.style.color = colorValue;
+        }
+
+        function actionChangeSize(sizeValue) {
+            textarea.style.fontSize = sizeValue;
+        }
+
+        function actionDeleteAll() {
+            if (confirm("Are you sure you want to delete everything?")) {
+                textarea.value = "";
+                localStorage.removeItem('notepad_backup_data');
+            }
+        }
+
+        function actionSaveFile() {
+            const blob = new Blob([textarea.value], { type: "text/plain" });
+            const link = document.createElement("a");
+            link.download = "my-note.txt";
+            link.href = URL.createObjectURL(blob);
+            link.click();
+        }
+
+        /* CAMERA FEATURE WITH EXPLICIT ERROR HANDLING */
+        async function actionStartCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("Security Block: Your browser blocks camera access when opening files directly. Try using Google Chrome, or hosting the file on a local server.");
+                return;
+            }
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = videoStream;
+                video.style.display = "block";
+                snapBtn.style.display = "block";
+                camToggleBtn.style.display = "none";
+            } catch (err) {
+                alert("Camera access denied! Please click the 'Lock' icon next to your browser URL bar and change Camera to 'Allow'.");
+                console.error(err);
+            }
+        }
+
+        function actionTakeSnapshot() {
+            photoStatus.textContent = "📸 Photo Captured! (Saved to downloads)";
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Automatically download the snapshot image directly to your PC
+            const image = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = 'notepad-photo.png';
+            link.href = image;
+            link.click();
+            
+            setTimeout(() => { photoStatus.textContent = ""; }, 3000);
+        }
+
+        /* AUDIO RECORDER FEATURE */
+        async function actionToggleAudio() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("Security Block: Microphone access is restricted on this browser setup.");
+                return;
+            }
+
+            if (!isAudioRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    audioRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    audioRecorder.onstop = () => {
+                        const blob = new Blob(audioChunks, { type: 'audio/mp3' });
+                        audioPlayback.src = URL.createObjectURL(blob);
+                        audioPlayback.style.display = "block";
+                    };
+
+                    audioRecorder.start();
+                    isAudioRecording = true;
+                    recordBtn.textContent = "🛑 Stop Recording";
+                    recordBtn.style.background = "#ff4d4d";
+                    recordBtn.style.color = "white";
+                } catch (err) {
+                    alert("Microphone blocked. Please check your browser privacy permissions.");
+                    console.error(err);
+                }
+            } else {
+                audioRecorder.stop();
+                audioRecorder.stream.getTracks().forEach(track => track.stop());
+                isAudioRecording = false;
+                recordBtn.textContent = "🎙️ Start Recording";
+                recordBtn.style.background = "#fff";
+                recordBtn.style.color = "#000";
+            }
+        }
+    </script>
+</body>
+</html>
